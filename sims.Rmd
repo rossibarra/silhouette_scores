@@ -2,25 +2,31 @@
 title: "sims"
 output: html_document
 ---
-
-## Functions and libraries
-Libraries
-```{r}
+# Setup
+#### Functions and libraries
+```{r, message=FALSE, warning=FALSE}
 library(tidyverse)
-library(admixturegraph)
-source("plotting_funcs.R")
+library(cowplot)
 library(admixturegraph)
 library(neldermead)
 library(doParallel)
 library(parallel)
 library(foreach)
+library(pbapply)
+library(LEA)
+library(cluster)
+library(viridis)
+# library(gtools)
+# source("plotting_funcs.R")
+# source("http://membres-timc.imag.fr/Olivier.Francois/Conversion.R")
+# source("http://membres-timc.imag.fr/Olivier.Francois/POPSutilities.R")
 ```
 
 
-Functions to generate diploid data, remove monomorphic loci
+#### Functions 
 ```{r}
 gendata<-function(migration_command,n,ninds){
-  hapdat<-matrix(unlist(lapply(strsplit(system(paste("mspms ", n*ninds, " 1 -t 450 -r 450 450 -I ", n, " ", paste(rep(ninds,n),collapse=" ") , " ", migration_command, " | tail -", n*ninds,sep=""),intern=T),''),as.numeric)),nrow=n*ninds,byrow=T)
+  hapdat<-matrix(unlist(lapply(strsplit(system(paste("mspms ", n*ninds, " 1 -t 450 -r 450 450 -I ", n, " ", paste(rep(ninds,n),collapse=" ") , " ", migration_command, " | tail -", n*ninds,sep=""),intern=T),''),as.numeric)),nrow=n*ninds,byrow=T) # run coalescent sim
   
   genodat<-hapdat[seq(1,n*ninds,2),]+hapdat[seq(2,n*ninds,2),] # make diploid 
   
@@ -36,60 +42,98 @@ f4_calc<-function(perms,list_of_freqs,locus){
   freqs<-sapply(perms,function(z) list_of_freqs[[z]][locus])
   f4_freqs=freqs[perm]
   return((f4_freqs[1]-f4_freqs[2])*(f4_freqs[3]-f4_freqs[4]))
-}
+} #calculate f4 stats (not used)
 ```
 
-## Simulation
+## Simulation  
 #### Coalescent Simulation
-```{r, message=FALSE, warning=FALSE, results='hide'}
+```{r}
 npops=6
 ninds=20
 kpops=6
 
 #model w/ admixture but no migration
-migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -g 3 5.0 -ej 0.04 5 4 -ej 0.06 4 3 -es 0.07 6 0.8 -ej 0.07 6 3 -ej 0.07 7 2 -ej 0.1 3 1 -ej 0.6 2 1")
+#migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -g 3 5.0 -ej 0.04 5 4 -ej 0.06 4 3 -es 0.07 6 0.8 -ej 0.07 6 3 -ej 0.07 7 2 -ej 0.1 3 1 -ej 0.6 2 1")
 
 #model with admixutre and migration 
 #migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -m 4 3 50.0 -m 3 4 50.0 -m 2 6 50.0 -g 3 5.0 -ej 0.04 5 4 -ej 0.06 4 3 -es 0.07 6 0.8 -ej 0.07 6 3 -ej 0.07 7 2 -ej 0.1 3 1 -ej 0.6 2 1")
 
 #model migration with no pop split
-#migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -m 4 3 50.0 -m 3 4 50.0 -m 2 6 100.0 -g 3 5.0 -ej 0.04 5 4 -ej 0.06 4 3 -ej 0.07 6 3 -ej 0.1 3 1 -ej 0.6 2 1")
+#migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -m 4 3 1.0 -m 3 4 1 -m 2 6 .5 -g 3 5.0 -ej 0.04 5 4 -ej 0.06 4 3 -ej 0.07 6 3 -ej 0.1 3 1 -ej 0.6 2 1")
 
 #nothing
-#migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -g 3 5.0 -ej 0.04 5 4 -ej 0.06 4 3 -ej 0.07 6 3 -ej 0.1 3 1 -ej 0.6 2 1")
+migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -g 3 5.0 -ej 0.04 5 4 -ej 0.06 4 3 -ej 0.07 6 3 -ej 0.1 3 1 -ej 0.6 2 1")
 
 mydat<-gendata(migration_command,npops,ninds)
 ```
 
 #### Set up admix graph
-##### Set Tree
-```{r}
+Set Tree
+```{r set tree, fig.height=1.5, fig.width=2, results="hide"}
 leaves <- c("SH", "SL", "MH", "ML","PARV","MEX")
-inner_nodes <- c("S", "M", "SM","PM","PX","MM")
+inner_nodes <- c("S", "M", "SM","PM","PX")
 edges <- parent_edges(c(edge("SH", "S"),
                         edge("SL", "S"),
                         edge("ML", "M"),
                      #  admixture_edge("oMH", "MM","M", "α"),
-                        edge("MH", "M"),                                    
+                        edge("MH", "M"),                          
                         edge("M","SM"),
                     #   edge("MH","oMH"),
                         edge("S","SM"),
                         edge("PARV","PM"),
                         edge("SM","PM"),
                         edge("PM","PX"),
-                        edge("MM","PX"),
-                       edge("MEX","MM")
+                        edge("MEX","PX")
                         ))
 graph <- agraph(leaves, inner_nodes, edges)
+make_an_outgroup(graph, "MEx")
 plot(graph, show_inner_node_labels = TRUE, show_admixture_labels = TRUE)
 ```
 
-##### Make list of trees
+Make list of trees
 ```{r}
-graph_list <- add_an_admixture2(graph, "MIX")
+graph_list <- add_an_admixture(graph, "MIX")
 ```
 
-## OG Data
+#### Silhouette scores
+
+Make distance matrix
+```{r}
+nloci=dim(mydat)[2]
+ibs_mat<-as.matrix(dist(mydat,method="manhattan",diag=TRUE,upper=TRUE)/nloci)
+pops=c("PARV","MEX","ML","SL","SH","MH")
+for_sil=data.frame(paste(1:60,"@",c(sapply(pops,function(j) rep(j,10))),sep=""),ibs_mat)
+write.table(for_sil,file="sim_dist_matrix.txt",col.names=FALSE,row.names=FALSE,quote=FALSE,sep="\t")
+```
+
+Calculate silhoutte scores, make graphs
+```{r, message=FALSE, warning=TRUE, include=FALSE}
+system("perl silhouette.pl -i sim_dist_matrix.txt -o temp -g")
+```
+
+Get individuals cut due to silhouettde scores
+```{r}
+#read in silscores
+tempcut<-data.frame(read.table("temp_ind.sil",header=F),expand.grid(1:(ninds/2),1:npops))
+colnames(tempcut)=c("pop","silscore","samplenum","popnum")
+
+#get list of inds with silscores<0
+cuts=sapply(1:npops, function(p) filter(tempcut,silscore<0 & popnum==p)$samplenum)
+```
+
+
+```{r}
+#cut based on silhouette scores
+keep<-sort(which(silhouette(kmeans(dist(mydat),npops)[[1]],dist(mydat))[,3]>0))
+
+left_out<-which(!(1:(npops*ninds/2) %in% keep))
+if(length(left_out)<1){ next }
+
+#make new data from cut
+cutdat<-mydat[keep,] 
+write.table(t(cutdat),file="~/crapcut.geno",quote=F,row.names=F,col.names=F,sep="")
+```
+
 
 #### Allele counts
 Allele counts without silhouette cuts
@@ -116,7 +160,89 @@ for(i in 1:(npops)){
 }
 ```
 
-#### Treemix
+#### Allele Counts
+Allele counts with silhouette cuts
+```{r}
+cut_allele_counts=list()
+cut_allele_freqs=list()
+cum=0
+rmpop=as.numeric()
+for(i in 1:(npops)){
+  sample=which(1:(ninds/2) %!in% cuts[[i]])
+  if(length(sample)==0){  
+      cut_allele_counts[[i]]=paste(0,0,sep=",")
+      cut_allele_freqs[[i]]=paste(0,0,sep=",")
+      rmpop=c(rmpop,i)
+  } else if(length(sample)==1) {
+    cut_allele_counts[[i]]=paste(mydat[cum+sample,],2*length(sample)-mydat[cum+sample,],sep=",")
+    cut_allele_freqs[[i]]=mydat[cum+sample,]/(2*length(sample))
+  }
+  else{
+    cut_allele_counts[[i]]=paste(colSums(mydat[cum+sample,]),2*length(sample)-colSums(mydat[cum+sample,]),sep=",")
+    cut_allele_freqs[[i]]=colSums(mydat[cum+sample,])/(2*length(sample))
+  }
+  cum=cum+max(sample)
+}
+```
+
+
+## Structure Plots
+
+#### Uncut
+```{r, include=FALSE}
+#structure on original
+obj.snmf<-snmf("~/crap.geno",K = kpops, alpha = 10, project = "new") 
+qmatrix = Q(obj.snmf, K = kpops)
+bobuncut=gather(data.frame(t(qmatrix)),dude,qval,1:(nrow(qmatrix))) %>%
+mutate(pop=factor(rep(1:kpops,nrow(qmatrix))),dude=factor(as.numeric(gsub("X","",dude))))
+```
+
+#### Cut
+```{r, include=FALSE}
+#structure on cut data
+obj.snmf<-snmf("~/crapcut.geno",K = kpops, alpha = 10, project = "new") 
+qmatrix = Q(obj.snmf, K = kpops)
+
+#make new matrix with 0s for left out individuals
+if(length(left_out)>0){
+  m <- matrix(0, ncol=kpops,nrow=(npops*ninds/2)) 
+  m[!(1:nrow(m) %in% left_out),] <- qmatrix
+} else{ m=qmatrix} 
+
+bobcut=gather(data.frame(t(m)),dude,qval,1:(nrow(m))) %>%
+  mutate(pop=factor(rep(1:kpops,nrow(m))),dude=factor(as.numeric(gsub("X","",dude))))
+```
+
+#### Plots
+```{r}
+uncut<-ggplot(bobuncut,aes(x=dude,y=qval,fill=pop))+
+    geom_bar(stat="identity")+
+    theme(
+      axis.text.y=element_blank(),
+      axis.ticks.y=element_blank(),
+      axis.title.x=element_blank(),
+      axis.title.y=element_blank()
+    )+
+    scale_fill_manual(guide=FALSE,values=viridis(npops))+
+    scale_x_discrete(labels=1:(npops*ninds/2))
+
+cut<-ggplot(bobcut,aes(x=dude,y=qval,fill=pop))+ geom_bar(stat="identity")+
+  theme(axis.text.y=element_blank(), axis.ticks.y=element_blank(),
+        axis.title.x=element_blank(), axis.title.y=element_blank())+
+  scale_fill_manual(guide=FALSE,values=viridis(npops)) 
+
+
+bob=list(cut,uncut)
+graphlist <- replicate(10, qplot(1,1), simplify = FALSE)
+
+title <- ggdraw() + draw_label(paste(migration_command), fontface='bold')
+
+plots<-plot_grid(uncut,cut)
+print( plot_grid(title,plots,ncol=1, rel_heights=c(0.3, 1)))
+```
+
+
+## Treemix
 ```{r}
 treemix<-data.frame(matrix(unlist(allele_counts),ncol=npops,byrow=F))
 #colnames(treemix)=paste("pop",rep(1:(npops)),sep="")
@@ -146,65 +272,16 @@ OG <- OG[,c(1:5,7)]
 plot(f4stats(OG))
 ```
 
-Fit graphs
+Fit graphs, plot graph with lowest error.
 ```{r}
-bob=fit_graph_list(bears,example_list_2,2)
-ted=sapply(1:length(bob), function(i) (bob[[i]]$best_error))
-plot(bob[[which(ted==min(ted))]]$graph)
+ncores=3 #cpu to use
+fits=fit_graph_list(OG,graph_list,ncores)
+fits_errors=pbsapply(1:length(fits), function(i) (fits[[i]]$best_error))
+plot(fits[[which(fits_errors==min(fits_errors))]]$graph)
+plot(fit_graph(OG,fits[[which(fits_errors==min(fits_errors))]]$graph))
+plot(fit_graph(OG,graph))
 ```
 
-
-## Silhouette
-
-#### Calculate scores
-Make distance matrix
-```{r}
-nloci=dim(mydat)[2]
-ibs_mat<-as.matrix(dist(mydat,method="manhattan",diag=TRUE,upper=TRUE)/nloci)
-pops=c("PARV","MEX","ML","SL","SH","MH")
-for_sil=data.frame(paste(1:60,"@",c(sapply(pops,function(j) rep(j,10))),sep=""),ibs_mat)
-write.table(for_sil,file="sim_dist_matrix.txt",col.names=FALSE,row.names=FALSE,quote=FALSE,sep="\t")
-```
-
-Calculate silhoutte scores, make graphs
-```{r, message=FALSE, warning=TRUE, include=FALSE}
-system("perl silhouette.pl -i sim_dist_matrix.txt -o temp -g")
-```
-
-Get individuals cut due to silhouettde scores
-```{r}
-#read in silscores
-tempcut<-data.frame(read.table("temp_ind.sil",header=F),expand.grid(1:(ninds/2),1:npops))
-colnames(tempcut)=c("pop","silscore","samplenum","popnum")
-
-#get list of inds with silscores<0
-cuts=sapply(1:npops, function(p) filter(tempcut,silscore<0 & popnum==p)$samplenum)
-```
-
-#### Allele Counts
-Allele counts with silhouette cuts
-```{r}
-allele_counts=list()
-allele_freqs=list()
-cum=0
-rmpop=as.numeric()
-for(i in 1:(npops)){
-  sample=which(1:(ninds/2) %!in% cuts[[i]])
-  if(length(sample)==0){  
-      allele_counts[[i]]=paste(0,0,sep=",")
-      allele_freqs[[i]]=paste(0,0,sep=",")
-      rmpop=c(rmpop,i)
-  } else if(length(sample)==1) {
-    allele_counts[[i]]=paste(mydat[cum+sample,],2*length(sample)-mydat[cum+sample,],sep=",")
-    allele_freqs[[i]]=mydat[cum+sample,]/(2*length(sample))
-  }
-  else{
-    allele_counts[[i]]=paste(colSums(mydat[cum+sample,]),2*length(sample)-colSums(mydat[cum+sample,]),sep=",")
-    allele_freqs[[i]]=colSums(mydat[cum+sample,])/(2*length(sample))
-  }
-  cum=cum+max(sample)
-}
-```
 
 
 

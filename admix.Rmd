@@ -18,9 +18,6 @@ knitr::opts_chunk$set(
 
 library(admixturegraph)
 library(neldermead)
-library(doParallel)
-library(parallel)
-library(foreach)
 ```
 
 This document describes the `admixturegraph` package, a package for fitting admixture graphs to genetic data.
@@ -40,6 +37,16 @@ With three related populations where one branched off a common ancestor early an
 
 All else being equal here means that the populations should have evolved at roughly the same speed --- the gene frequency changes should not be more dramatic in one population than another. If we consider populations A, B and C, with A and B closest relatives but where population A has changed very rapidly since it split from population B, then gene frequencies in A and B could be less correlated than between B and C (but A and C would be even less correlated).
 
+```{r, echo=FALSE}
+leaves <- c("A", "B", "C")
+inner_nodes <- c("AB", "ABC")
+edges <- parent_edges(c(edge("A", "AB"),
+                        edge("B", "AB"),
+                        edge("AB", "ABC"),
+                        edge("C", "ABC")))
+graph <- agraph(leaves, inner_nodes, edges)
+plot(graph)
+```
 
 The way gene frequencies change over time as a population evolve is called genetic drift and the way gene frequencies are correlated between populations is determined by how they are related. These relationships can be simple trees with ancestral populations split into descendant populations or more complex graphs with gene flow between diverged populations.
 
@@ -53,33 +60,109 @@ It is first necessary to specify the nodes in the graphs, where there is a disti
 
 Edges are specified by specifying the parent of each node. Only one node is allowed not to have a parent; the package cannot deal with more than one root.
 
+The tree shown above is specified as:
+
+```{r}
+leaves <- c("A", "B", "C")
+inner_nodes <- c("AB", "ABC")
+edges <- parent_edges(c(edge("A", "AB"),
+                        edge("B", "AB"),
+                        edge("AB", "ABC"),
+                        edge("C", "ABC")))
+graph <- agraph(leaves, inner_nodes, edges)
+```
+
+and plotted like:
+
+```{r}
+plot(graph)  
+```
+
+By default the labels on inner nodes are not shown but this can be changed by:
+
+```{r}
+plot(graph, show_inner_node_labels = TRUE)  
+```
+
 The shape of the output of the plotting algorithm is determined by heuristics designed to make the graph visually pleasing. However, the user has the final say on the shape if what the heuristics propose is not satisfactory (like the non-alphabetical order of leaves in the example above).
 
 Admixture events are specified by having admixture edges. These are edges with two parents. Admixture edges really represent two different edges, capturing the drift between the two populations ancestral to the admixture event before the admixture took place, so we typically have to add inner nodes on the edges where these two ancestral populations branched off other lineages in the graph.
 
 ```{r}
-leaves <- c("SH", "SL", "MH", "ML","PARV","MEX")
-inner_nodes <- c("S", "M", "SM","PM","PX","MM")
-edges <- parent_edges(c(edge("SH", "S"),
-                        edge("SL", "S"),
-                        edge("ML", "M"),
-                     #  admixture_edge("oMH", "MM","M", "α"),
-                        edge("MH", "M"),                                    
-                        edge("M","SM"),
-                    #   edge("MH","oMH"),
-                        edge("S","SM"),
-                        edge("PARV","PM"),
-                        edge("SM","PM"),
-                        edge("PM","PX"),
-                        edge("MM","PX"),
-                       edge("MEX","MM")
-                        ))
+leaves <- c("A", "B", "C")
+inner_nodes <- c("a", "c", "ABC")
+edges <- parent_edges(c(edge("A", "a"), edge("a", "ABC"),
+                        edge("C", "c"), edge("c", "ABC"),
+                        admixture_edge("B", "a", "c", "alpha")))
 graph <- agraph(leaves, inner_nodes, edges)
-plot(graph, show_inner_node_labels = TRUE, show_admixture_labels = TRUE)
 
+plot(graph, show_inner_node_labels = TRUE)
 ```
 
+Since we usually model admixtures that happened at some point in the past we usually also need an inner node above the present day admixed population.
 
+```{r}
+leaves <- c("A", "B", "C")
+inner_nodes <- c("a", "c", "b", "ABC")
+edges <- parent_edges(c(edge("A", "a"), edge("a", "ABC"),
+                        edge("C", "c"), edge("c", "ABC"),
+                        edge("B", "b"),
+                        admixture_edge("b", "a", "c", "alpha")))
+graph <- agraph(leaves, inner_nodes, edges)
+
+plot(graph, show_inner_node_labels = TRUE)
+```
+
+This graph doesn't contain a variable for the admixture proportions between the two ancestral populations to B. To work with the equations for expected drift statistics we need to specify this as well.
+
+This is done through the last parameter when constructing the admixture graph, like this:
+
+```{r}
+leaves <- c("A", "B", "C")
+inner_nodes <- c("a", "c", "b", "ABC")
+edges <- parent_edges(c(edge("A", "a"), edge("a", "ABC"),
+                        edge("C", "c"), edge("c", "ABC"),
+                        edge("B", "b"),
+                        admixture_edge("b", "a", "c", "alpha")))
+graph <- agraph(leaves, inner_nodes, edges)
+
+plot(graph, show_inner_node_labels = TRUE, show_admixture_labels = TRUE)
+```
+
+As a somewhat more complex example we build a graph for samples of polar and brown bears described in [@Cahill:2014fo].
+Although the brown bears from mainland Alaska and even from Sweden were found to have some polar bear ancestry, the 
+most remarkable episode of polar bear gene flow was into the population of brown bears that colonized 
+Admiralty, Baranof and Chichagof islands of Alaska (the ABC bears).
+
+A graph constructed to capture this main gene flow could look like this (the parameter `platform` is to make the horizontal lines around the admixture node a bit wider to make room for the labels, for more options on customising the graph plots see the documentation of `plot.agraph`):
+
+```{r bears_graph, fig.width=6, fig.height=5, cache=TRUE}
+leaves <- c("BLK", "PB", "Adm1", "Adm2", "Bar", "Chi1", "Chi2", "Denali", "Kenai", "Sweden") 
+inner_nodes <- c("R", "r", "s", "t", "u", "v", "w", "x", "y", "z", "M")
+edges <- parent_edges(c(edge("BLK", "R"),
+                        edge("PB", "s"),
+                        edge("Adm1", "x"),
+                        edge("Adm2", "x"),
+                        edge("Bar", "y"),
+                        edge("Chi1", "z"),
+                        edge("Chi2", "z"),
+                        edge("Denali", "v"),
+                        edge("Kenai", "u"),
+                        edge("Sweden", "t"),
+                        edge("r", "R"),
+                        edge("s", "r"),
+                        edge("t", "r"),
+                        edge("u", "t"),
+                        edge("v", "u"),
+                        edge("w", "M"),
+                        edge("x", "w"),
+                        edge("y", "w"),
+                        edge("z", "y"),
+                        admixture_edge("M", "s", "v", "a")))
+bears_graph <- agraph(leaves, inner_nodes, edges)
+
+plot(bears_graph, platform = 1.4, show_admixture_labels = TRUE)
+```
 
 # Extracting drift equations for expected $f$ statistics
 
@@ -90,9 +173,9 @@ The expected values are computed from weighted overlapping paths between pairs o
 The expressions extracted using the `sf2`, `sf3`, and `sf4` functions are in the form of (non-simplified) R expressions.
 
 ```{r}
-#sf2(bears_graph, "Bar", "Chi1")
-#sf3(bears_graph, "Bar", "Chi1", "Chi2")
-#sf4(bears_graph, "BLK", "Chi1", "Bar", "Chi2")
+sf2(bears_graph, "Bar", "Chi1")
+sf3(bears_graph, "Bar", "Chi1", "Chi2")
+sf4(bears_graph, "BLK", "Chi1", "Bar", "Chi2")
 ```
 
 # Fitting admixture graphs to observed $f$ statistics
@@ -104,10 +187,7 @@ For fitting data the package expects the observed statistics in a data frame wit
 For the bear samples we have the following statistics [@Cahill:2014fo]:
 
 ```{r bears_data}
-system("~/src/treemix/src/fourpop -i ~/Desktop/sandbox/silhouette/treemix_input.txt.gz -k 100 | grep -Ev 'Estimating|total|npop' | sed -e 's/,/ /g;s/;/ /' > ./for_admix.txt")
-bears<-read.table("./for_admix.txt",header=F) 
-colnames(bears)=c("W","X","Y","Z","D","seD","Z.value")
-bears <- bears[,c(1:5,7)]
+bears
 ```
 
 Since we have the `Z.values` we may visualize the statistics together with their confidence intervals (now the observations are considered as samples from a multivariate normal distribution):
@@ -123,16 +203,23 @@ of predicted (from the graph with `sf4` etc.) and observed (`D` from the data fr
 interpreted as the log likelihood of the graph parameters (edge lengths and admixture proportions), up to an affine normalization. See the documentation of `cost_function`, `edge_optimisation_function` and `log_likelihood` for more info.
 
 ```{r fitting_data}
-bears_fit <- fit_graph(bears, graph)
+bears_fit <- fit_graph(bears, bears_graph)
 ```
 
 The essentials about the fit can be printed with `print.agraph_fit` and visualized with `plot.agraph_fit`:
 
 ```{r}
 summary(bears_fit)
+```
+
+```{r, fig.height=5, fig.width=6}
 plot(bears_fit)
 ```
 
+It turned out that the value of the admixture proportion a had no effect on the minimum of the cost function. This is because our data frame wasn't sufficient for a graph this big, which is also reflected by the fact that only one of the edge lengths (between polar bears and brown bears splitting and polar bears and the population mixing into ABC bears splitting) matter while the rest can be chosen freely. From the plot it is clear that this graph is not very convincing match with the data, and that additional gene flow from the polar bears into mainland Alaska bears would help.
+
+With sufficient data the effect of admixture proportions on the cost function can be examined with the help of the functions `one_dimensional_plot` and `contour_plot`.
+See also `coef.agraph_fit`, `fitted.agraph_fit`, `print.agraph_fit` and `residuals.agraph_fit`.
 
 # Exploring the graph space
 
@@ -145,22 +232,139 @@ number of admixture events. Each row in such a matrix corresponds to a unique gr
 the population names; use the function `vector_to_graph` to interpret the vector as a graph and `rename_nodes` to rename the nodes. 
 
 ```{r}
-#example_graph <- vector_to_graph(graphs_6_1[3, ])
-#new_names <- list(A="SH", B="SL", C="MH", D="ML",E="PARV",F="MEX")
-#example_graph <- rename_nodes(example_graph, new_names)
-#plot(example_graph)
+example_graph <- vector_to_graph(graphs_3_1[1, ])
+new_names <- list(A = "P1", B = "P2", C = "P3")
+example_graph <- rename_nodes(example_graph, new_names)
+plot(example_graph)
 ```
 
-Add one admix event.
+A given graph can be expanded to a list of bigger graphs by several functions. To add a new leaf to an existing graph use `add_a_leaf`:
+
+```{r new_leaves, fig.height=15, fig.width=6}
+example_list_1 <- add_a_leaf(example_graph, "P4")
+
+original <- graphics::par()$mfrow
+graphics::par(mfrow = c(3, 2))
+for (graph in example_list_1) {
+  plot(graph)
+}
+
+graphics::par(mfrow = original)
+```
+
+To add a new admixture event to an existing graph use either `add_an_admixture` or `add_an_admixture2`; the former is only adding one parental edge assuming the other one already exist in the graph and the latter is detaching one edge and reattaching it with two parental edges anywhere in the original graph (provided that the result still is a valid admixture graph):
+
 ```{r new_admixtures}
-example_list_2 <- add_an_admixture(graph, "p2")
+example_list_2 <- add_an_admixture(example_graph, "p2")
+length(example_list_2)
+example_list_3 <- add_an_admixture2(example_graph, "p2")
+length(example_list_3)
+
+plot(example_list_2[[5]])
 ```
 
-Fit em all.
+None of these functions care where the original root was --- its position has no effect on the predictions `sf2`, `sf3` and `sf4` as long as the admixture events remain the same. However, if we want we can select any non-admixed leaf as an outgroup, meaning that the root will be placed on the edge leading to the leaf:
+
+```{r new_root}
+graph_with_a_new_root <- make_an_outgroup(example_list_2[[5]], "P2")
+plot(graph_with_a_new_root)
+```
+
+# Model comparisons and parameter posteriors
+
+The package provides an MCMC for sampling over posterior probabilities of parameters and, by integrating out parameters, for computing the likelihood of a topology which in turn can be used to compute Bayes factors for comparing two topologies.
+
+To illustrate the use of this MCMC we consider two alternative topologies for the bears data contained in the package, one that models polar bears as admixed:
+
 ```{r}
-bob=fit_graph_list(bears,example_list_2,2)
-ted=sapply(1:length(bob), function(i) (bob[[i]]$best_error))
-plot(bob[[which(ted==min(ted))]]$graph)
+leaves <- c("BLK", "PB",
+            "Bar", "Chi1", "Chi2", "Adm1", "Adm2",
+            "Denali", "Kenai", "Sweden")
+
+inner_nodes <- c("R", "X", "Z", "A", "B", "C", "D",
+                 "E", "F", "G", "H")
+
+edges <- parent_edges(c(edge("BLK", "R"),
+                        edge("PB", "Z"),
+                        admixture_edge("Z", "X", "E", "a"),
+                        edge("X", "R"),
+                        edge("Chi1", "G"),
+                        edge("Chi2", "G"),
+                        edge("Bar", "F"),
+                        edge("G", "F"),
+                        edge("F", "E"),
+                        edge("E", "D"),
+                        edge("Adm1", "H"),
+                        edge("Adm2", "H"),
+                        edge("H", "D"),
+                        edge("D", "C"),
+                        edge("Denali", "C"),
+                        edge("C", "B"),
+                        edge("Kenai", "B"),
+                        edge("B", "A"),
+                        edge("Sweden", "A"),
+                        edge("A", "X")))
+
+bears_graph_1 <- agraph(leaves, inner_nodes, edges)
+plot(bears_graph_1)
+```
+
+and another that considers brown bears admixed, but with several waves of admixture for capturing that the f4 statistics indicate that some brown bears are closer related to polar bears than others.
+
+```{r}
+leaves <- c("BLK", "PB",
+            "Bar", "Chi1", "Chi2", "Adm1", "Adm2",
+            "Denali", "Kenai", "Sweden") 
+
+inner_nodes <- c("R", "PBBB",
+                 "Adm", "Chi", "BC", "ABC",
+                 "x", "y", "z",
+                 "pb_a1", "pb_a2", "pb_a3", "pb_a4",
+                 "bc_a1", "abc_a2", "x_a3", "y_a4")
+
+edges <- parent_edges(c(edge("BLK", "R"),
+                        edge("PB", "pb_a1"),
+                        edge("pb_a1", "pb_a2"),
+                        edge("pb_a2", "pb_a3"),
+                        edge("pb_a3", "pb_a4"),
+                        edge("pb_a4", "PBBB"),
+                        edge("Chi1", "Chi"),
+                        edge("Chi2", "Chi"),
+                        edge("Chi", "BC"),
+                        edge("Bar", "BC"),
+                        edge("BC", "bc_a1"),
+                        edge("Adm1", "Adm"),
+                        edge("Adm2", "Adm"),
+                        admixture_edge("bc_a1", "pb_a1", "ABC", "a"),
+                        edge("Adm", "ABC"),
+                        edge("ABC", "abc_a2"),
+                        admixture_edge("abc_a2", "pb_a2", "x", "b"),
+                        edge("Denali", "x"),
+                        edge("x", "x_a3"),
+                        admixture_edge("x_a3", "pb_a3", "y", "c"),
+                        edge("Kenai", "y"),
+                        edge("y", "y_a4"),                        
+                        admixture_edge("y_a4", "pb_a4", "z", "d"),
+                        edge("Sweden", "z"),
+                        edge("z", "PBBB"),
+                        edge("PBBB", "R")))
+
+bears_graph_2 <- agraph(leaves, inner_nodes, edges)
+plot(bears_graph_2)
+```
+
+Both graphs provide a reasonably good fit to the data, but the second is of course more complex than the first.
+
+```{r}
+plot(fit_graph(bears, bears_graph_1))
+plot(fit_graph(bears, bears_graph_2))
+```
+
+To use the MCMC we first need to extract relevant information from the data and the graphs to build the Markov chain. This is done using the `make_mcmc_model` function.
+
+```{r}
+mcmc1 <- make_mcmc_model(bears_graph_1, bears)
+mcmc2 <- make_mcmc_model(bears_graph_2, bears)
 ```
 
 When constructing the MCMC, the package works out which parameters can be inferred from the avialable $f$-statistics. With this toy example there is not information about any of the terminal edges, since $f_4$ statistics do not provide information about this, so the parameters we can sample over are fewer than the graphs actually contain.
