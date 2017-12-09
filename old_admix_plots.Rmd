@@ -1,0 +1,167 @@
+---
+title: "R Notebook"
+output:
+  html_document: default
+  html_notebook: default
+---
+
+```{r, message=FALSE, warning=FALSE}
+library(LEA)
+library(cluster)
+library(cowplot)
+library(tidyverse) 
+library(viridis)
+library(gtools)
+source("http://membres-timc.imag.fr/Olivier.Francois/Conversion.R")
+source("http://membres-timc.imag.fr/Olivier.Francois/POPSutilities.R")
+```
+
+```{r}
+gendata<-function(migration_command,n,ninds){
+  hapdat<-matrix(unlist(lapply(strsplit(system(paste("mspms ", n*ninds, " 1 -t 450 -r 450 450 -I ", n, " ", paste(rep(ninds,n),collapse=" ") , " ", migration_command, " | tail -", n*ninds,sep=""),intern=T),''),as.numeric)),nrow=n*ninds,byrow=T)
+  genodat<-hapdat[seq(1,n*ninds,2),]+hapdat[seq(2,n*ninds,2),] # make diploid 
+  write.table(t(genodat),file="~/crap.geno", quote=F, row.names=F, col.names=F, sep="") 
+  return(genodat)
+}
+
+poly<-function(x){ if(x>0 && x<1){ return(TRUE)} else{return(FALSE)}}
+
+f4_calc<-function(perms,list_of_freqs,locus){
+  freqs<-sapply(perms,function(z) list_of_freqs[[z]][locus])
+  f4_freqs=freqs[perm]
+  return((f4_freqs[1]-f4_freqs[2])*(f4_freqs[3]-f4_freqs[4]))
+}
+```
+
+
+Simulate
+```{r, message=FALSE, warning=FALSE, results='hide'}
+npops=6
+ninds=20
+kpops=6
+
+#model no migration
+#-n 4 0.8 -n 5 0.1 -n 6 0.8 -g 3 5.0 -ej 0.04 5 4 -ej 0.06 4 3 -es 0.07 6 0.5 -ej 0.07 6 3 -ej 0.07 7 2 -ej 0.1 3 1 -ej 0.6 2 1
+
+#model with migration
+#-n 4 0.8 -n 5 0.1 -n 6 0.8 -m 4 3 250.0 -m 3 4 250.0 -m 2 6 100.0 -g 3 5.0 -ej 0.04 5 4 -ej 0.06 4 3 -es 0.07 6 0.5 -ej 0.07 6 3 -ej 0.07 7 2 -ej 0.1 3 1 -ej 0.6 2 1
+
+migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -g 3 5.0 -ej 0.04 5 4 -ej 0.06 4 3 -es 0.07 6 0.5 -ej 0.07 6 3 -ej 0.07 7 2 -ej 0.1 3 1 -ej 0.6 2 1")
+mydat<-gendata(migration_command,npops,ninds)
+```
+
+Make distance matrix
+```{r}
+nloci=dim(mydat)[2]
+ibs_mat<-as.matrix(dist(mydat,method="manhattan",diag=TRUE,upper=TRUE)/nloci)
+pops=c("parv","mex","ML","SAL","SAH","MH")
+for_sil=data.frame(sapply(pops,function(j) rep(j,10)),ibs_mat)
+write.table(for_sil,file="~/Desktop/sim_dist_matrix.txt",col.names=FALSE,row.names=FALSE,quote=FALSE)
+```
+
+```{r}
+#cut based on silhouette scores
+keep<-sort(which(silhouette(kmeans(dist(mydat),npops)[[1]],dist(mydat))[,3]>0))
+
+left_out<-which(!(1:(npops*ninds/2) %in% keep))
+if(length(left_out)<1){ next }
+
+#make new data from cut
+cutdat<-mydat[keep,] 
+write.table(t(cutdat),file="~/crapcut.geno",quote=F,row.names=F,col.names=F,sep="")
+```
+
+Write out in treemix format
+```{r}
+#uncut version
+allele_freqs=list()
+for(i in 1:(npops-1)){
+  sample=1:(ninds/2)
+  allele_freqs[[i]]=paste(colSums(mydat[sample,]),2*length(sample)-colSums(mydat[sample,]),sep=",")
+}
+treemix<-data.frame(matrix(unlist(allele_freqs),ncol=npops-1,byrow=F))
+colnames(treemix)=paste("pop",rep(1:(npops-1)),sep="")
+write.table(treemix,"~/Desktop/treemix_input.txt",quote=F,row.name=F)
+
+#cut version
+allele_freqs=list()
+for(i in 1:(npops-1)){
+  sample=keep[keep %in% seq(ninds*(i-1)/2+1,(ninds*i/2))]
+  allele_freqs[[i]]=paste(colSums(mydat[sample,]),2*length(sample)-colSums(mydat[sample,]),sep=",")
+}
+
+treemix<-data.frame(matrix(unlist(allele_freqs),ncol=npops-1,byrow=F))
+colnames(treemix)=paste("pop",rep(1:(npops-1)),sep="")
+write.table(treemix,"~/Desktop/treemix_input.cut.txt",quote=F,row.name=F)
+```
+
+
+Calculate myself
+```{r}
+nloci<-length(allele_freqs[[1]])
+combos<-permutations(n=4,r=4,v=x,repeats.allowed=F)
+f4_combos=as.numeric()
+for(i in 1:nrow(combos)){
+  f4=as.numeric()
+  for(j in 1:nloci){
+    #f4_calc<-function(perms,list_of_freqs,locus){
+    f4[j]=f4_calc( combos[i,], allele_freqs,j )
+  }
+  f4_combos[i]=mean(f4)
+}
+
+
+j=4
+hist(allele_freqs[[j]][sapply(allele_freqs[[j]],function(x) poly(x))])
+```
+
+
+
+
+
+Structure Plots
+```{r}
+#structure on original
+obj.snmf<-snmf("~/crap.geno",K = kpops, alpha = 10, project = "new") 
+qmatrix = Q(obj.snmf, K = kpops)
+bobuncut=gather(data.frame(t(qmatrix)),dude,qval,1:(nrow(qmatrix))) %>%
+mutate(pop=factor(rep(1:kpops,nrow(qmatrix))),dude=factor(as.numeric(gsub("X","",dude))))
+
+#structure on cut data
+obj.snmf<-snmf("~/crapcut.geno",K = kpops, alpha = 10, project = "new") 
+qmatrix = Q(obj.snmf, K = kpops)
+
+#make new matrix with 0s for left out individuals
+if(length(left_out)>0){
+  m <- matrix(0, ncol=kpops,nrow=(npops*ninds/2)) 
+  m[!(1:nrow(m) %in% left_out),] <- qmatrix
+} else{ m=qmatrix} 
+
+bobcut=gather(data.frame(t(m)),dude,qval,1:(nrow(m))) %>%
+  mutate(pop=factor(rep(1:kpops,nrow(m))),dude=factor(as.numeric(gsub("X","",dude))))
+
+cut<-ggplot(bobcut,aes(x=dude,y=qval,fill=pop))+ geom_bar(stat="identity")+
+  theme(axis.text.y=element_blank(), axis.ticks.y=element_blank(),
+        axis.title.x=element_blank(), axis.title.y=element_blank())+
+  scale_fill_manual(guide=FALSE,values=viridis(npops)) 
+
+    uncut<-ggplot(bobuncut,aes(x=dude,y=qval,fill=pop))+
+    geom_bar(stat="identity")+
+    theme(
+      axis.text.y=element_blank(),
+      axis.ticks.y=element_blank(),
+      axis.title.x=element_blank(),
+      axis.title.y=element_blank()
+    )+
+    scale_fill_manual(guide=FALSE,values=viridis(npops))+
+    scale_x_discrete(labels=1:(npops*ninds/2))
+
+    bob=list(cut,uncut)
+        graphlist <- replicate(10, qplot(1,1), simplify = FALSE)
+
+     title <- ggdraw() + draw_label(paste(migration_command), fontface='bold')
+     plots<-plot_grid(uncut,cut)
+    print( plot_grid(title,plots,ncol=1, rel_heights=c(0.3, 1)))
+
+```
+
