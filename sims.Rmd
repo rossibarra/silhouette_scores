@@ -17,7 +17,7 @@ library(LEA)
 library(cluster)
 library(viridis)
 # library(gtools)
-# source("plotting_funcs.R")
+source("plotting_funcs.R")
 # source("http://membres-timc.imag.fr/Olivier.Francois/Conversion.R")
 # source("http://membres-timc.imag.fr/Olivier.Francois/POPSutilities.R")
 ```
@@ -112,7 +112,7 @@ system("perl silhouette.pl -i sim_dist_matrix.txt -o temp -g")
 ```
 
 Get individuals cut due to silhouettde scores
-```{r}
+```{r,message=FALSE}
 #read in silscores
 tempcut<-data.frame(read.table("temp_ind.sil",header=F),expand.grid(1:(ninds/2),1:npops))
 colnames(tempcut)=c("pop","silscore","samplenum","popnum")
@@ -127,7 +127,7 @@ cuts=sapply(1:npops, function(p) filter(tempcut,silscore<0 & popnum==p)$samplenu
 keep<-sort(which(silhouette(kmeans(dist(mydat),npops)[[1]],dist(mydat))[,3]>0))
 
 left_out<-which(!(1:(npops*ninds/2) %in% keep))
-if(length(left_out)<1){ next }
+#if(length(left_out)<1){ next }
 
 #make new data from cut
 cutdat<-mydat[keep,] 
@@ -160,7 +160,6 @@ for(i in 1:(npops)){
 }
 ```
 
-#### Allele Counts
 Allele counts with silhouette cuts
 ```{r}
 cut_allele_counts=list()
@@ -189,7 +188,7 @@ for(i in 1:(npops)){
 ## Structure Plots
 
 #### Uncut
-```{r, include=FALSE}
+```{r}
 #structure on original
 obj.snmf<-snmf("~/crap.geno",K = kpops, alpha = 10, project = "new") 
 qmatrix = Q(obj.snmf, K = kpops)
@@ -223,10 +222,13 @@ uncut<-ggplot(bobuncut,aes(x=dude,y=qval,fill=pop))+
       axis.title.x=element_blank(),
       axis.title.y=element_blank()
     )+
+    ggtitle("OG data")+
     scale_fill_manual(guide=FALSE,values=viridis(npops))+
     scale_x_discrete(labels=1:(npops*ninds/2))
 
-cut<-ggplot(bobcut,aes(x=dude,y=qval,fill=pop))+ geom_bar(stat="identity")+
+cut<-ggplot(bobcut,aes(x=dude,y=qval,fill=pop))+
+  geom_bar(stat="identity")+
+  ggtitle("silhouette cuts")+
   theme(axis.text.y=element_blank(), axis.ticks.y=element_blank(),
         axis.title.x=element_blank(), axis.title.y=element_blank())+
   scale_fill_manual(guide=FALSE,values=viridis(npops)) 
@@ -235,17 +237,17 @@ cut<-ggplot(bobcut,aes(x=dude,y=qval,fill=pop))+ geom_bar(stat="identity")+
 bob=list(cut,uncut)
 graphlist <- replicate(10, qplot(1,1), simplify = FALSE)
 
-title <- ggdraw() + draw_label(paste(migration_command), fontface='bold')
+#title <- ggdraw() + draw_label(paste(migration_command), fontface='bold')
 
 plots<-plot_grid(uncut,cut)
-print( plot_grid(title,plots,ncol=1, rel_heights=c(0.3, 1)))
+print( plot_grid(plots,ncol=1, rel_heights=c(0.3, 1)))
 ```
 
 
 ## Treemix
+#### Uncut
 ```{r}
 treemix<-data.frame(matrix(unlist(allele_counts),ncol=npops,byrow=F))
-#colnames(treemix)=paste("pop",rep(1:(npops)),sep="")
 colnames(treemix)=c("PARV","MEX","ML","SL","SH","MH")
 write.table(treemix,"treemix_input.txt",quote=F,row.name=F)
 system("gzip -f treemix_input.txt")
@@ -254,12 +256,23 @@ system("gzip -f treemix_input.txt")
 Make tree
 ```{r}
 system("~/src/treemix/src/treemix -i ~/Desktop/sandbox/silhouette/treemix_input.txt.gz -o treemix_out -m 1")
-plot_tree("~/Desktop/sandbox/silhouette/treemix_out")
+bob=plot_tree("~/Desktop/sandbox/silhouette/treemix_out")
+
 ```
 
-#### Structure Plots
+#### Cut
 ```{r}
-#TODO
+treemix<-data.frame(matrix(unlist(cut_allele_counts),ncol=npops,byrow=F))
+colnames(treemix)=c("PARV","MEX","ML","SL","SH","MH")
+write.table(treemix,"treemix_cut_input.txt",quote=F,row.name=F)
+system("gzip -f treemix_cut_input.txt")
+```
+
+Make tree
+```{r}
+system("~/src/treemix/src/treemix -i ~/Desktop/sandbox/silhouette/treemix_cut_input.txt.gz -o treemix_cut_out -m 1")
+bob=plot_tree("~/Desktop/sandbox/silhouette/treemix_cut_out")
+
 ```
 
 #### Admixture Graphs
