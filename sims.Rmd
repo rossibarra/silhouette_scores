@@ -53,9 +53,9 @@ ninds=20
 kpops=6
 
 #model w/ admixture but no migration
-#migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -g 3 5.0 -ej 0.04 5 4 -ej 0.06 4 3 -es 0.07 6 0.8 -ej 0.07 6 3 -ej 0.07 7 2 -ej 0.1 3 1 -ej 0.6 2 1")
+migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -g 3 5.0 -ej 0.04 5 4 -ej 0.06 4 3 -es 0.07 6 0.8 -ej 0.07 6 3 -ej 0.07 7 2 -ej 0.1 3 1 -ej 0.6 2 1")
 
-#model with admixutre and migration 
+#model with admixture and migration 
 #migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -m 4 3 50.0 -m 3 4 50.0 -m 2 6 50.0 -g 3 5.0 -ej 0.04 5 4 -ej 0.06 4 3 -es 0.07 6 0.8 -ej 0.07 6 3 -ej 0.07 7 2 -ej 0.1 3 1 -ej 0.6 2 1")
 
 #model migration with no pop split
@@ -69,7 +69,7 @@ mydat<-gendata(migration_command,npops,ninds)
 
 #### Set up admix graph
 Set Tree
-```{r set tree, fig.height=1.5, fig.width=2, results="hide"}
+```{r set tree, fig.height=3.5, fig.width=4, results="hide"}
 leaves <- c("SH", "SL", "MH", "ML","PARV","MEX")
 inner_nodes <- c("S", "M", "SM","PM","PX")
 edges <- parent_edges(c(edge("SH", "S"),
@@ -107,7 +107,7 @@ write.table(for_sil,file="sim_dist_matrix.txt",col.names=FALSE,row.names=FALSE,q
 ```
 
 Calculate silhoutte scores, make graphs
-```{r, message=FALSE, warning=TRUE, include=FALSE}
+```{r}
 system("perl silhouette.pl -i sim_dist_matrix.txt -o temp -g")
 ```
 
@@ -125,8 +125,6 @@ keep<-sort(which(silhouette(kmeans(dist(mydat),npops)[[1]],dist(mydat))[,3]>0))
 
 left_out<-which(!(1:(npops*ninds/2) %in% keep))
 cut_out<-paste(left_out,tempcut$pop[left_out])
-
-tempcut$pop[left_out]
 
 if(length(left_out)>0){ 
   print(paste("The following",length(left_out),"individuals were removed:"))
@@ -193,7 +191,8 @@ if(length(left_out)==0){
   }
 }
 
-cuts
+#test: 
+#sapply(1:6, function(p) sum(allele_counts[[p]]!=cut_allele_counts[[p]]))
 ```
 
 
@@ -225,7 +224,7 @@ bobcut=gather(data.frame(t(m)),dude,qval,1:(nrow(m))) %>%
 ```
 
 #### Plots
-```{r}
+```{r,fig.height=3, fig.width=12, results="hide"}
 uncut<-ggplot(bobuncut,aes(x=dude,y=qval,fill=pop))+
     geom_bar(stat="identity")+
     theme(
@@ -267,7 +266,7 @@ system("gzip -f treemix_input.txt")
 
 Make tree
 ```{r}
-system("~/src/treemix/src/treemix -i ~/Desktop/sandbox/silhouette/treemix_input.txt.gz -o treemix_out -m 1")
+system("~/src/treemix/src/treemix -i ~/Desktop/sandbox/silhouette/treemix_input.txt.gz -o treemix_out -m 1 -root MEX")
 plot_tree("~/Desktop/sandbox/silhouette/treemix_out")
 ```
 
@@ -281,7 +280,7 @@ system("gzip -f treemix_cut_input.txt")
 
 Make tree
 ```{r}
-system("~/src/treemix/src/treemix -i ~/Desktop/sandbox/silhouette/treemix_cut_input.txt.gz -o treemix_cut_out -m 1")
+system("~/src/treemix/src/treemix -i ~/Desktop/sandbox/silhouette/treemix_cut_input.txt.gz -o treemix_cut_out -m 1 -root MEX")
 plot_tree("~/Desktop/sandbox/silhouette/treemix_cut_out")
 ```
 
@@ -295,7 +294,17 @@ OG <- OG[,c(1:5,7)]
 plot(f4stats(OG))
 ```
 
-Fit graphs, plot graph with lowest error.
+Silhouette cuts
+```{r}
+system("~/src/treemix/src/fourpop -i ~/Desktop/sandbox/silhouette/treemix_cut_input.txt.gz -k 100 | grep -Ev 'Estimating|total|npop' | sed -e 's/,/ /g;s/;/ /' > ./for_admix_cut.txt")
+cutdat<-read.table("./for_admix_cut.txt",header=F) 
+colnames(cutdat)=c("W","X","Y","Z","D","seD","Z.value")
+cutdat <- cutdat[,c(1:5,7)]
+plot(f4stats(cutdat))
+```
+
+
+Fit graphs, plot graph with lowest error. First on OG data:
 ```{r}
 ncores=3 #cpu to use
 fits=fit_graph_list(OG,graph_list,ncores)
@@ -305,6 +314,14 @@ plot(fit_graph(OG,fits[[which(fits_errors==min(fits_errors))]]$graph))
 plot(fit_graph(OG,graph))
 ```
 
-
+Then on silhouette scores:
+```{r}
+ncores=3 #cpu to use
+fits=fit_graph_list(OG,graph_list,ncores)
+fits_errors=pbsapply(1:length(fits), function(i) (fits[[i]]$best_error))
+plot(fits[[which(fits_errors==min(fits_errors))]]$graph)
+plot(fit_graph(OG,fits[[which(fits_errors==min(fits_errors))]]$graph))
+plot(fit_graph(OG,graph))
+```
 
 
