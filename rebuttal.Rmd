@@ -8,7 +8,7 @@ output:
 
 # Simulations
 
-Let's simulate some stuff. I don't show all the packages and code here for sake of brevity, but 
+We've discussed some concerns about the analysis and interpretation of [@MorenoLetelier]. Here I'd like to do a wee bit of simulation to provide an intuition for some of these issues.  I don't show all the packages and code here for sake of brevity, but all the code is available in a [github repository](https://github.com/rossibarra/silhouette_scores.git) if interested.  This should not be considered in any way a formal analysis, as I am making assumptions about demography and phylogeny, only running a few simulations, and by no means rigorously testing alternative scenarios.  
 
 ```{r, message=FALSE, warning=FALSE, include=FALSE}
 library(tidyverse)
@@ -25,7 +25,7 @@ library(viridis)
 source("plotting_funcs.R")
 ```
 
-First we need a function to generate data.  Here we use [msprime](https://github.com/jeromekelleher/msprime) to simulate 6 populations. We simulate $\Theta=4N_e\mu=18,000$ which, with a maize mutation rate of $3\times10^{-8}$ [@clark2005estimating] and a teosinte effective population size of $N_e=150,000$ [ross2009historical] is equivalent to about 1Mb of sequence.  For convenience we set the recombination rate $\rho=4N_ec=\Theta$.  We simulate 6 populations, following a tree something like this:
+We simulate 6 populations, following a tree something like this:
 
 ```{r set tree, echo=FALSE}
 leaves <- c("SA", "MH", "ML","P1","P2","ME")
@@ -46,7 +46,9 @@ make_an_outgroup(graph, "ME")
 plot(graph, show_inner_node_labels = TRUE, show_admixture_labels = TRUE)
 ```
 
-Where **ME** is *Z. mays* ssp. *mexicana*, **P1** and **P2** are two populations of *Z. mays* ssp. *mexicana*, and **ML**, **MH**, and **SA** are Mexican Highland, Mexican Lowland, and a South American population of domesticated *Z. mays* ssp. *mays*.
+Where **ME** is *Z. mays* ssp. *mexicana*, **P1** and **P2** are two populations of *Z. mays* ssp. *mexicana*, and **ML**, **MH**, and **SA** are Mexican Highland, Mexican Lowland, and a South American population of domesticated *Z. mays* ssp. *mays*. I won't go into the details of the demography I'm using, except to say I think it should be a reasonable (cartoonish) approximation for what we think maize and teosinte population sizes and split times are.  For details of how demography works on this commandline see [the documentation for ms]() and several relevant papers [].
+
+Here we use msprime [@kelleher2016efficient] to generate coalescent simulations for these populations. We simulate $\Theta=4N_e\mu=18,000$ which, with a maize mutation rate of $3\times10^{-8}$ [@clark2005estimating] and a teosinte effective population size of $N_e=150,000$ [ross2009historical] is equivalent to about 1Mb of sequence.  For convenience we set the recombination rate $\rho=4N_ec=\Theta$. 
 
 ```{r functions}
 gendata<-function(migration_command,n,ninds){
