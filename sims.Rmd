@@ -1,6 +1,8 @@
 ---
 title: "sims"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 # Setup
 #### Functions and libraries
@@ -13,20 +15,22 @@ library(doParallel)
 library(parallel)
 library(foreach)
 library(pbapply)
-library(LEA)
 library(cluster)
 library(viridis)
-# library(gtools)
 source("plotting_funcs.R")
-# source("http://membres-timc.imag.fr/Olivier.Francois/Conversion.R")
-# source("http://membres-timc.imag.fr/Olivier.Francois/POPSutilities.R")
+library(LEA)
 ```
 
 
 #### Functions 
 ```{r}
 gendata<-function(migration_command,n,ninds){
-  hapdat<-matrix(unlist(lapply(strsplit(system(paste("mspms ", n*ninds, " 1 -t 450 -r 450 450 -I ", n, " ", paste(rep(ninds,n),collapse=" ") , " ", migration_command, " | tail -", n*ninds,sep=""),intern=T),''),as.numeric)),nrow=n*ninds,byrow=T) # run coalescent sim
+  hapdat<-matrix(unlist(lapply(strsplit(system(paste("mspms ", n*ninds, " 1 -t 4500 -r 4500 4500 -I ", n, " ", paste(rep(ninds,n),collapse=" ") , " ", migration_command, " | tail -", n*ninds,sep=""),intern=T),''),as.numeric)),nrow=n*ninds,byrow=T) # run coalescent sim
+
+#2 GHOST POP
+#hapdat<-matrix(unlist(lapply(strsplit(system(paste("mspms ", n*ninds, " 1 -t 450 -r 450 450 -I ", n+2, " ", paste(c(rep(ninds,n),rep(0,2)),collapse=" ") , " ", migration_command, " | tail -", n*ninds,sep=""),intern=T),''),as.numeric)),nrow=n*ninds,byrow=T) # run coalescent sim
+
+paste(c(rep(ninds,n),rep(0,2)))
   
   genodat<-hapdat[seq(1,n*ninds,2),]+hapdat[seq(2,n*ninds,2),] # make diploid 
   
@@ -53,13 +57,13 @@ ninds=20
 kpops=6
 
 #model w/ admixture but no migration
-migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -g 3 5.0 -ej 0.04 5 4 -ej 0.06 4 3 -es 0.07 6 0.8 -ej 0.07 6 3 -ej 0.07 7 2 -ej 0.1 3 1 -ej 0.6 2 1")
+#migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -g 3 5.0 -ej 0.04 5 4 -ej 0.06 4 3 -es 0.07 6 0.8 -ej 0.07 6 3 -ej 0.07 7 2 -ej 0.1 3 1 -ej 0.6 2 1")
 
 #model with admixture and migration 
-#migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -m 4 3 50.0 -m 3 4 50.0 -m 2 6 50.0 -g 3 5.0 -ej 0.04 5 4 -ej 0.06 4 3 -es 0.07 6 0.8 -ej 0.07 6 3 -ej 0.07 7 2 -ej 0.1 3 1 -ej 0.6 2 1")
+#migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -m 5 4 .5 -m 4 5 .5 -m 4 3 .5 -m 3 4 .5 -m 2 6 .1 -g 3 5.0 -ej 0.04 5 4 -ej 0.06 4 3 -es 0.07 6 0.8 -ej 0.07 6 3 -ej 0.07 7 2 -ej 0.1 3 1 -ej 0.6 2 1")
 
 #model migration with no pop split
-#migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -m 4 3 1.0 -m 3 4 1 -m 2 6 .5 -g 3 5.0 -ej 0.04 5 4 -ej 0.06 4 3 -ej 0.07 6 3 -ej 0.1 3 1 -ej 0.6 2 1")
+migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -m 6 2 10 -g 3 200 -ej 0.0075 5 4 -ej 0.01 4 3 -ej 0.011 6 3 -ej 0.02 3 1 -ej 0.12 2 1")
 
 #nothing
 #migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -g 3 5.0 -ej 0.04 5 4 -ej 0.06 4 3 -ej 0.07 6 3 -ej 0.1 3 1 -ej 0.6 2 1")
@@ -91,14 +95,14 @@ plot(graph, show_inner_node_labels = TRUE, show_admixture_labels = TRUE)
 ```
 
 Make list of trees
-```{r}
+```{r graph_list}
 graph_list <- add_an_admixture(graph, "MIX")
 ```
 
 #### Silhouette scores
 
 Make distance matrix
-```{r}
+```{r distance matrix}
 nloci=dim(mydat)[2]
 ibs_mat<-as.matrix(dist(mydat,method="manhattan",diag=TRUE,upper=TRUE)/nloci)
 pops=c("PARV","MEX","ML","SL","SH","MH")
@@ -107,12 +111,12 @@ write.table(for_sil,file="sim_dist_matrix.txt",col.names=FALSE,row.names=FALSE,q
 ```
 
 Calculate silhoutte scores, make graphs
-```{r}
+```{r sil scores}
 system("perl silhouette.pl -i sim_dist_matrix.txt -o temp -g")
 ```
 
 Get individuals cut due to silhouette scores
-```{r,message=FALSE}
+```{r find cuts,message=FALSE}
 #read in silscores
 tempcut<-data.frame(read.table("temp_ind.sil",header=F),expand.grid(1:(ninds/2),1:npops))
 colnames(tempcut)=c("pop","silscore","samplenum","popnum")
@@ -124,6 +128,13 @@ cuts=sapply(1:npops, function(p) filter(tempcut,silscore<0 & popnum==p)$samplenu
 keep<-sort(which(silhouette(kmeans(dist(mydat),npops)[[1]],dist(mydat))[,3]>0))
 
 left_out<-which(!(1:(npops*ninds/2) %in% keep))
+
+#####TESTING ONLY PLEASE DELETE
+#####TESTING ONLY PLEASE DELETE
+#left_out<-c(51:58)
+#####TESTING ONLY PLEASE DELETE
+#####TESTING ONLY PLEASE DELETE
+
 cut_out<-paste(left_out,tempcut$pop[left_out])
 
 if(length(left_out)>0){ 
@@ -133,6 +144,9 @@ if(length(left_out)>0){
   print("Nobody cut.")
 }
 
+
+
+
 #make new data from cut
 cutdat<-mydat[keep,] 
 write.table(t(cutdat),file="~/crapcut.geno",quote=F,row.names=F,col.names=F,sep="")
@@ -140,7 +154,7 @@ write.table(t(cutdat),file="~/crapcut.geno",quote=F,row.names=F,col.names=F,sep=
 
 #### Allele counts
 Allele counts without silhouette cuts
-```{r}
+```{r counts}
 allele_counts=list()
 allele_freqs=list()
 cumulative=0
@@ -164,7 +178,7 @@ for(i in 1:(npops)){
 ```
 
 Allele counts with silhouette cuts
-```{r}
+```{r count cuts}
 cut_allele_counts=list()
 cut_allele_freqs=list()
 cum=0
@@ -199,7 +213,7 @@ if(length(left_out)==0){
 ## Structure Plots
 
 #### Uncut
-```{r}
+```{r uncut structure}
 #structure on original
 obj.snmf<-snmf("~/crap.geno",K = kpops, alpha = 10, project = "new") 
 qmatrix = Q(obj.snmf, K = kpops)
@@ -208,7 +222,7 @@ mutate(pop=factor(rep(1:kpops,nrow(qmatrix))),dude=factor(as.numeric(gsub("X",""
 ```
 
 #### Cut
-```{r, include=FALSE}
+```{r cut structure, include=FALSE}
 #structure on cut data
 obj.snmf<-snmf("~/crapcut.geno",K = kpops, alpha = 10, project = "new") 
 qmatrix = Q(obj.snmf, K = kpops)
@@ -224,7 +238,11 @@ bobcut=gather(data.frame(t(m)),dude,qval,1:(nrow(m))) %>%
 ```
 
 #### Plots
-```{r,fig.height=3, fig.width=12, results="hide"}
+```{r structure plots,fig.height=3, fig.width=12, results="hide"}
+blank2=c(rep("",8))
+blank1=c(rep("",1))
+poplabs=c(blank1,"PA",blank2,blank1,"ME",blank2,blank1,"ML",blank2,blank1,"SL",blank2,blank1,"SH",blank2,blank1,"MH",blank2)
+
 uncut<-ggplot(bobuncut,aes(x=dude,y=qval,fill=pop))+
     geom_bar(stat="identity")+
     theme(
@@ -233,22 +251,23 @@ uncut<-ggplot(bobuncut,aes(x=dude,y=qval,fill=pop))+
       axis.title.x=element_blank(),
       axis.title.y=element_blank()
     )+
-    ggtitle("OG data")+
+    ggtitle("ADMIXTURE")+
     scale_fill_manual(guide=FALSE,values=viridis(npops))+
-    scale_x_discrete(labels=1:(npops*ninds/2))
+    scale_x_discrete(labels=poplabs)+
+    theme(axis.text=element_text(size=32),plot.title = element_text(size = 40, face = "bold"))
 
 cut<-ggplot(bobcut,aes(x=dude,y=qval,fill=pop))+
   geom_bar(stat="identity")+
   ggtitle("silhouette cuts")+
+      theme(axis.text=element_text(size=32),plot.title = element_text(size = 40, face = "bold"))+
   theme(axis.text.y=element_blank(), axis.ticks.y=element_blank(),
         axis.title.x=element_blank(), axis.title.y=element_blank())+
-  scale_fill_manual(guide=FALSE,values=viridis(npops)) 
+  scale_fill_manual(guide=FALSE,values=viridis(npops)) +    scale_x_discrete(labels=poplabs)
+
 
 
 bob=list(cut,uncut)
 graphlist <- replicate(10, qplot(1,1), simplify = FALSE)
-
-#title <- ggdraw() + draw_label(paste(migration_command), fontface='bold')
 
 plots<-plot_grid(uncut,cut)
 print( plot_grid(plots,ncol=1, rel_heights=c(0.3, 1)))
@@ -257,7 +276,7 @@ print( plot_grid(plots,ncol=1, rel_heights=c(0.3, 1)))
 
 ## Treemix
 #### Uncut
-```{r}
+```{r treemix og}
 treemix<-data.frame(matrix(unlist(allele_counts),ncol=npops,byrow=F))
 colnames(treemix)=c("PARV","MEX","ML","SL","SH","MH")
 write.table(treemix,"treemix_input.txt",quote=F,row.name=F)
@@ -265,13 +284,13 @@ system("gzip -f treemix_input.txt")
 ```
 
 Make tree
-```{r}
-system("~/src/treemix/src/treemix -i ~/Desktop/sandbox/silhouette/treemix_input.txt.gz -o treemix_out -m 1 -root MEX")
-plot_tree("~/Desktop/sandbox/silhouette/treemix_out")
+```{r make uncut tree}
+system("~/src/treemix/src/treemix -i ~/gdrive/sandbox/silhouette/treemix_input.txt.gz -o treemix_out -m 1 -root MEX")
+plot_tree("~/gdrive/sandbox/silhouette/treemix_out")
 ```
 
 #### Cut
-```{r}
+```{r treemix cut}
 treemix<-data.frame(matrix(unlist(cut_allele_counts),ncol=npops,byrow=F))
 colnames(treemix)=c("PARV","MEX","ML","SL","SH","MH")
 write.table(treemix,"treemix_cut_input.txt",quote=F,row.name=F)
@@ -279,15 +298,15 @@ system("gzip -f treemix_cut_input.txt")
 ```
 
 Make tree
-```{r}
-system("~/src/treemix/src/treemix -i ~/Desktop/sandbox/silhouette/treemix_cut_input.txt.gz -o treemix_cut_out -m 1 -root MEX")
-plot_tree("~/Desktop/sandbox/silhouette/treemix_cut_out")
+```{r make cut tree}
+system("~/src/treemix/src/treemix -i ~/gdrive/sandbox/silhouette/treemix_cut_input.txt.gz -o treemix_cut_out -m 1 -root MEX")
+plot_tree("~/gdrive/sandbox/silhouette/treemix_cut_out")
 ```
 
 #### Admixture Graphs
 Get Data
-```{r OG_Data}
-system("~/src/treemix/src/fourpop -i ~/Desktop/sandbox/silhouette/treemix_input.txt.gz -k 100 | grep -Ev 'Estimating|total|npop' | sed -e 's/,/ /g;s/;/ /' > ./for_admix.txt")
+```{r f4 OG_Data}
+system("~/src/treemix/src/fourpop -i ~/gdrive/sandbox/silhouette/treemix_input.txt.gz -k 100 | grep -Ev 'Estimating|total|npop' | sed -e 's/,/ /g;s/;/ /' > ./for_admix.txt")
 OG<-read.table("./for_admix.txt",header=F) 
 colnames(OG)=c("W","X","Y","Z","D","seD","Z.value")
 OG <- OG[,c(1:5,7)]
@@ -295,8 +314,8 @@ plot(f4stats(OG))
 ```
 
 Silhouette cuts
-```{r}
-system("~/src/treemix/src/fourpop -i ~/Desktop/sandbox/silhouette/treemix_cut_input.txt.gz -k 100 | grep -Ev 'Estimating|total|npop' | sed -e 's/,/ /g;s/;/ /' > ./for_admix_cut.txt")
+```{r f4 cuts}
+system("~/src/treemix/src/fourpop -i ~/gdrive/sandbox/silhouette/treemix_cut_input.txt.gz -k 100 | grep -Ev 'Estimating|total|npop' | sed -e 's/,/ /g;s/;/ /' > ./for_admix_cut.txt")
 cutdat<-read.table("./for_admix_cut.txt",header=F) 
 colnames(cutdat)=c("W","X","Y","Z","D","seD","Z.value")
 cutdat <- cutdat[,c(1:5,7)]
@@ -305,7 +324,7 @@ plot(f4stats(cutdat))
 
 
 Fit graphs, plot graph with lowest error. First on OG data:
-```{r}
+```{r fit og graphs}
 ncores=3 #cpu to use
 fits=fit_graph_list(OG,graph_list,ncores)
 fits_errors=pbsapply(1:length(fits), function(i) (fits[[i]]$best_error))
@@ -315,13 +334,13 @@ plot(fit_graph(OG,graph))
 ```
 
 Then on silhouette scores:
-```{r}
+```{r fit cut graphs}
 ncores=3 #cpu to use
-fits=fit_graph_list(OG,graph_list,ncores)
+fits=fit_graph_list(cutdat,graph_list,ncores)
 fits_errors=pbsapply(1:length(fits), function(i) (fits[[i]]$best_error))
 plot(fits[[which(fits_errors==min(fits_errors))]]$graph)
-plot(fit_graph(OG,fits[[which(fits_errors==min(fits_errors))]]$graph))
-plot(fit_graph(OG,graph))
+plot(fit_graph(cutdat,fits[[which(fits_errors==min(fits_errors))]]$graph))
+plot(fit_graph(cutdat,graph))
 ```
 
 

@@ -1,0 +1,152 @@
+---
+title: "sims"
+output:
+  html_document: default
+  pdf_document: default
+  bibliography: bibliography.bib
+---
+
+# Simulations
+
+Let's simulate some stuff. I don't show all the packages and code here for sake of brevity, but 
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+library(tidyverse)
+library(cowplot)
+library(admixturegraph)
+library(neldermead)
+library(doParallel)
+library(parallel)
+library(foreach)
+library(LEA)
+library(pbapply)
+library(cluster)
+library(viridis)
+source("plotting_funcs.R")
+```
+
+First we need a function to generate data.  Here we use [msprime](https://github.com/jeromekelleher/msprime) to simulate 6 populations. We simulate $\Theta=4N_e\mu=18,000$ which, with a maize mutation rate of $3\times10^{-8}$ [@clark2005estimating] and a teosinte effective population size of $N_e=150,000$ [ross2009historical] is equivalent to about 1Mb of sequence.  For convenience we set the recombination rate $\rho=4N_ec=\Theta$.  We simulate 6 populations, following a tree something like this:
+
+```{r set tree, echo=FALSE}
+leaves <- c("SA", "MH", "ML","P1","P2","ME")
+inner_nodes <- c("P", "M", "SM","PX","AN")
+edges <- parent_edges(c(edge("P1", "AN"),
+                        edge("AN","P"),
+                        edge("P2", "P"),
+                        edge("ML", "M"),
+                        edge("MH", "M"),                          
+                        edge("M","SM"),
+                        edge("SA","SM"),
+                        edge("SM","AN"),
+                        edge("P","PX"),
+                        edge("ME","PX")
+                        ))
+graph <- agraph(leaves, inner_nodes, edges)
+make_an_outgroup(graph, "ME")
+plot(graph, show_inner_node_labels = TRUE, show_admixture_labels = TRUE)
+```
+
+Where **ME** is *Z. mays* ssp. *mexicana*, **P1** and **P2** are two populations of *Z. mays* ssp. *mexicana*, and **ML**, **MH**, and **SA** are Mexican Highland, Mexican Lowland, and a South American population of domesticated *Z. mays* ssp. *mays*.
+
+```{r functions}
+gendata<-function(migration_command,n,ninds){
+  hapdat<-matrix(unlist(lapply(strsplit(system(paste("mspms ", n*ninds, " 1 -t 180 -r 180 180 -I ", n, " ", paste(rep(ninds,n),collapse=" ") , " ", migration_command, " | tail -", n*ninds,sep=""),intern=T),''),as.numeric)),nrow=n*ninds,byrow=T) # run coalescent sim
+
+paste(c(rep(ninds,n),rep(0,2)))
+  
+  genodat<-hapdat[seq(1,n*ninds,2),]+hapdat[seq(2,n*ninds,2),] # make diploid 
+  
+  write.table(t(genodat),file="./crap.geno", quote=F, row.names=F, col.names=F, sep="") #write genotype file
+  return(genodat) #rows=sites, columns=individuals
+}
+```
+
+## Simulation  
+#### Coalescent Simulation
+```{r sim migration}
+npops=6
+ninds=20
+kpops=6
+
+migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -g 3 200 -ej 0.0075 5 4 -ej 0.01 4 3 -ej 0.011 6 3 -ej 0.02 3 1 -ej 0.12 2 1")
+mydat_nada<-gendata(migration_command,npops,ninds)
+```
+
+We'll also need to set up a simulation where there *is* migration.  
+
+```{r sim nothing}
+migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -m 6 2 10 -g 3 200 -ej 0.0075 5 4 -ej 0.01 4 3 -ej 0.011 6 3 -ej 0.02 3 1 -ej 0.12 2 1")
+
+mydat_migration<-gendata(migration_command,npops,ninds)
+```
+
+
+#### Allele counts
+```{r counts}
+allele_counts=list()
+allele_freqs=list()
+cumulative=0
+rmpop=as.numeric()
+for(i in 1:(npops)){
+  sample=1:(ninds/2)
+  if(length(sample)==0){  
+      allele_counts[[i]]=paste(0,0,sep=",")
+      allele_freqs[[i]]=paste(0,0,sep=",")
+      rmpop=c(rmpop,i)
+  } else if(length(sample)==1) {
+    allele_counts[[i]]=paste(mydat[cumulative+sample,],2*length(sample)-mydat[cumulative+sample,],sep=",")
+    allele_freqs[[i]]=mydat[cumulative+sample,]/(2*length(sample))
+  }
+  else{
+    allele_counts[[i]]=paste(colSums(mydat[cumulative+sample,]),2*length(sample)-colSums(mydat[cumulative+sample,]),sep=",")
+    allele_freqs[[i]]=colSums(mydat[cumulative+sample,])/(2*length(sample))
+  }
+  cumulative=cumulative+max(sample)
+}
+```
+
+## Structure Plots
+
+#### Uncut
+```{r uncut structure}
+#structure on original
+obj.snmf<-snmf("./crap.geno",K = kpops, repetitions=1, CPU=2, alpha = 10, project = "new") 
+qmatrix = Q(obj.snmf, K = kpops)
+bobuncut=gather(data.frame(t(qmatrix)),dude,qval,1:(nrow(qmatrix))) %>%
+mutate(pop=factor(rep(1:kpops,nrow(qmatrix))),dude=factor(as.numeric(gsub("X","",dude))))
+```
+
+
+#### Plots
+```{r structure plots,fig.height=3, fig.width=12, results="hide"}
+blank2=c(rep("",9))
+blank1=c()
+poplabs=c(blank1,"PA",blank2,blank1,"ME",blank2,blank1,"ML",blank2,blank1,"SL",blank2,blank1,"SH",blank2,blank1,"MH",blank2)
+
+ggplot(bobuncut,aes(x=dude,y=qval,fill=pop))+
+    geom_bar(stat="identity")+
+    theme(
+      axis.text.y=element_blank(),
+      axis.ticks.y=element_blank(),
+      axis.title.x=element_blank(),
+      axis.title.y=element_blank()
+    )+
+    ggtitle("ADMIXTURE")+
+    scale_fill_manual(guide=FALSE,values=viridis(npops))+
+    scale_x_discrete(labels=poplabs)+
+    theme(axis.text=element_text(size=32),plot.title = element_text(size = 40, face = "bold"))
+```
+
+## Treemix
+```{r treemix og}
+treemix<-data.frame(matrix(unlist(allele_counts),ncol=npops,byrow=F))
+colnames(treemix)=c("PARV","MEX","ML","SL","SH","MH")
+write.table(treemix,"treemix_input.txt",quote=F,row.name=F)
+system("gzip -f treemix_input.txt")
+```
+
+Make tree
+```{r make uncut tree}
+system("~/src/treemix/src/treemix -i ~/gdrive/sandbox/silhouette/treemix_input.txt.gz -o treemix_out -m 1 -root MEX")
+plot_tree("~/gdrive/sandbox/silhouette/treemix_out")
+```
