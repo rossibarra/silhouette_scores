@@ -8,7 +8,7 @@ output:
 
 # Simulations
 
-We've discussed some concerns about the analysis and interpretation of [@MorenoLetelier]. Here I'd like to do a wee bit of simulation to provide an intuition for some of these issues.  I don't show all the packages and code here for sake of brevity, but all the code is available in a [github repository](https://github.com/rossibarra/silhouette_scores.git) if interested.  This should not be considered in any way a formal analysis, as I am making assumptions about demography and phylogeny, only running a few simulations, and by no means rigorously testing alternative scenarios.  
+We've discussed some concerns about the analysis and interpretation of [@MorenoLetelier]. Here I'd like to do a wee bit of simulation to provide an intuition for some of these issues.  I don't show all the packages and code here for sake of brevity, but all the code is available in a [github repository](https://github.com/rossibarra/silhouette_scores.git) if interested.  This should not be considered in any way a formal analysis, as I am making assumptions about demography and the topology of the tree representing population history, running only a few simulations, ignoring linked selection, simulating only a small region of the genome, and by no means rigorously testing alternative scenarios. 
 
 ```{r, message=FALSE, warning=FALSE, include=FALSE}
 library(tidyverse)
@@ -46,10 +46,11 @@ make_an_outgroup(graph, "ME")
 plot(graph, show_inner_node_labels = TRUE, show_admixture_labels = TRUE)
 ```
 
-Where **ME** is *Z. mays* ssp. *mexicana*, **P1** and **P2** are two populations of *Z. mays* ssp. *mexicana*, and **ML**, **MH**, and **SA** are Mexican Highland, Mexican Lowland, and a South American population of domesticated *Z. mays* ssp. *mays*. I won't go into the details of the demography I'm using, except to say I think it should be a reasonable (cartoonish) approximation for what we think maize and teosinte population sizes and split times are.  For details of how demography works on this commandline see [the documentation for ms]() and several relevant papers [].
+Where **ME** is *Z. mays* ssp. *mexicana*, **P1** and **P2** are two populations of *Z. mays* ssp. *mexicana* (representing e.g. Jalisco and Balsas populations), and **ML**, **MH**, and **SA** are Mexican Highland, Mexican Lowland, and a South American population of domesticated *Z. mays* ssp. *mays*. We are showing maize as having been domesticated from **P1**. I won't go into the details of the demography I'm using, except to say I think it should be a reasonable (cartoonish) approximation for what we think maize and teosinte population sizes and split times are.  For details of how demography works on this commandline see [the documentation for ms](http://home.uchicago.edu/rhudson1/source/mksamples.html) and several relevant papers [ross2009historical; takuno; wright; tenaillon; eyre-walker ]. The notable detail for which we have no data is the split time between populations **P1** and **P2**; here I'm assuming it's on the same order of magnitude as the split time between **ME** and **P1**.
 
 Here we use msprime [@kelleher2016efficient] to generate coalescent simulations for these populations. We simulate $\Theta=4N_e\mu=18,000$ which, with a maize mutation rate of $3\times10^{-8}$ [@clark2005estimating] and a teosinte effective population size of $N_e=150,000$ [ross2009historical] is equivalent to about 1Mb of sequence.  For convenience we set the recombination rate $\rho=4N_ec=\Theta$. 
 
+First, our generic function to run simulations and then generate diploid samples:
 ```{r functions}
 gendata<-function(migration_command,n,ninds){
   hapdat<-matrix(unlist(lapply(strsplit(system(paste("mspms ", n*ninds, " 1 -t 180 -r 180 180 -I ", n, " ", paste(rep(ninds,n),collapse=" ") , " ", migration_command, " | tail -", n*ninds,sep=""),intern=T),''),as.numeric)),nrow=n*ninds,byrow=T) # run coalescent sim
@@ -63,21 +64,20 @@ paste(c(rep(ninds,n),rep(0,2)))
 }
 ```
 
-## Simulation  
-#### Coalescent Simulation
+We run a simulation with no migration, with population splits following the topology in Figure 1 [].
 ```{r sim migration}
 npops=6
 ninds=20
 kpops=6
 
-migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -g 3 200 -ej 0.0075 5 4 -ej 0.01 4 3 -ej 0.011 6 3 -ej 0.02 3 1 -ej 0.12 2 1")
+migration_command=paste("-n 4 3 -n 5 3 -n 6 3 -g 4 205 -g 5 300 -g 6 300 -ej 0.0075 5 4 -en 0.0075 4 0.32 -ej 0.011 6 4 -en 0.011 4 0.11 -ej 0.015 4 1 -en 0.015 1 1 -ej 0.08 3 1 -en 0.08 1 1 -ej 0.1 2 1 -en 0.1 1 1")
 mydat_nada<-gendata(migration_command,npops,ninds)
 ```
 
-We'll also need to set up a simulation where there *is* migration.  
+Now we run one where there *is* migration, 
 
 ```{r sim nothing}
-migration_command=paste("-n 4 0.8 -n 5 0.1 -n 6 0.8 -m 6 2 10 -g 3 200 -ej 0.0075 5 4 -ej 0.01 4 3 -ej 0.011 6 3 -ej 0.02 3 1 -ej 0.12 2 1")
+migration_command=paste("-n 4 3 -n 5 3 -n 6 3 -g 4 205 -g 5 300 -g 6 300 -ej 0.0075 5 4 -en 0.0075 4 0.32 -ej 0.011 6 4 -en 0.011 4 0.11 -ej 0.015 4 1 -en 0.015 1 1 -ej 0.08 3 1 -en 0.08 1 1 -ej 0.1 2 1 -en 0.1 1 1")
 
 mydat_migration<-gendata(migration_command,npops,ninds)
 ```
@@ -85,6 +85,7 @@ mydat_migration<-gendata(migration_command,npops,ninds)
 
 #### Allele counts
 ```{r counts}
+mydat<-mydat_nada
 allele_counts=list()
 allele_freqs=list()
 cumulative=0
