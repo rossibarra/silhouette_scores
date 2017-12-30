@@ -1,14 +1,23 @@
 ---
-title: "sims"
-output:
-  html_document: default
-  pdf_document: default
-  bibliography: bibliography.bib
+title: "rebuttal"
+output: html_document
+bibliography: bibliography.bib
 ---
+# What we know about maize domestication
+
+# A new paper
+
+#### Minor beefs
+
+In addition to the issues raised above, there are a number of minor issues that show up in @MorenoLetelier.
+
+* The authors describe the species *Zea mays* up front has having three "clearly differentiated" subpsecies (*mays*, *mexicana*, and *parviglumis*).  Their own dendrogram (Figure S3), however, shows that ssp. *huehuetenangensis* is pretty distinct.
+
+* In the introduction, the existence of refugia in Western Mexico during the mid-Holocene that coincide with maize domestication dates seems to be used to suggest cliamte evidence might favor a Jalisco origin.  My reading of  
 
 # Simulations
 
-We've discussed some concerns about the analysis and interpretation of [@MorenoLetelier]. Here I'd like to do a wee bit of simulation to provide an intuition for some of these issues.  I don't show all the packages and code here for sake of brevity, but all the code is available in a [github repository](https://github.com/rossibarra/silhouette_scores.git) if interested.  This should not be considered in any way a formal analysis, as I am making assumptions about demography and the topology of the tree representing population history, running only a few simulations, ignoring linked selection, simulating only a small region of the genome, and by no means rigorously testing alternative scenarios. 
+I've discussed some concerns about the analysis and interpretation of @MorenoLetelier. Here I'd like to do a wee bit of simulation to provide an intuition for some of these issues.  I don't show all the packages and code here for sake of brevity, but all the code is available in a [github repository](https://github.com/rossibarra/silhouette_scores.git) if interested.  This should not be considered in any way a formal analysis, as I am making assumptions about demography and the topology of the tree representing population history, running only a few simulations, ignoring linked selection, simulating only a small region of the genome, and by no means rigorously testing alternative scenarios. 
 
 ```{r, message=FALSE, warning=FALSE, include=FALSE}
 library(tidyverse)
@@ -25,108 +34,148 @@ library(viridis)
 source("plotting_funcs.R")
 ```
 
-We simulate 6 populations, following a tree something like this:
+I simulate 7 populations, following this tree topology:
 
-```{r set tree, echo=FALSE}
-leaves <- c("SA", "MH", "ML","P1","P2","ME")
-inner_nodes <- c("P", "M", "SM","PX","AN")
+```{r set tree, fig.height=4, fig.width=4, echo=FALSE}
+leaves <- c( "ML", "MH","P1","P2","ME","SL","SH")
+inner_nodes <- c("P", "M", "SM","PX","AN","S")
 edges <- parent_edges(c(edge("P1", "AN"),
                         edge("AN","P"),
                         edge("P2", "P"),
                         edge("ML", "M"),
                         edge("MH", "M"),                          
                         edge("M","SM"),
-                        edge("SA","SM"),
+                        edge("SH","S"),
+                        edge("SL","S"),
+                        edge("S","SM"),
                         edge("SM","AN"),
                         edge("P","PX"),
                         edge("ME","PX")
                         ))
 graph <- agraph(leaves, inner_nodes, edges)
-make_an_outgroup(graph, "ME")
 plot(graph, show_inner_node_labels = TRUE, show_admixture_labels = TRUE)
 ```
 
-Where **ME** is *Z. mays* ssp. *mexicana*, **P1** and **P2** are two populations of *Z. mays* ssp. *mexicana* (representing e.g. Jalisco and Balsas populations), and **ML**, **MH**, and **SA** are Mexican Highland, Mexican Lowland, and a South American population of domesticated *Z. mays* ssp. *mays*. We are showing maize as having been domesticated from **P1**. I won't go into the details of the demography I'm using, except to say I think it should be a reasonable (cartoonish) approximation for what we think maize and teosinte population sizes and split times are.  For details of how demography works on this commandline see [the documentation for ms](http://home.uchicago.edu/rhudson1/source/mksamples.html) and several relevant papers [ross2009historical; takuno; wright; tenaillon; eyre-walker ]. The notable detail for which we have no data is the split time between populations **P1** and **P2**; here I'm assuming it's on the same order of magnitude as the split time between **ME** and **P1**.
+where **ME** is *Z. mays* ssp. *mexicana*, **P1** and **P2** are two populations of *Z. mays* ssp. *mexicana* (representing e.g. Jalisco and Balsas populations), and **ML**, **MH**, and **SL** and **SH** are Mexican and South American Highland and Lowland  populations of domesticated *Z. mays* ssp. *mays*. For reference in the code below, populations are in the same order as this tree (e.g. pop1=**ME**,pop7=**SH**).I am showing maize as having been domesticated from **P1**. I won't go into the details of the demography I'm using, except to say I think it should be a reasonable (cartoonish) approximation for what we think maize and teosinte population sizes and split times are.  For details of how demography works on this commandline see [the documentation for ms](http://home.uchicago.edu/rhudson1/source/mksamples.html) and several relevant papers [@eyre1998investigation; @tenaillon2004selection; @wright2005effects, @ross2009historical; @beissinger2016recent; @wang2017interplay]. The notable detail for which there is no good data is the split time between populations **P1** and **P2**; here I'm assuming it's on the same order of magnitude as the split time between **ME** and **P1**.
 
-Here we use msprime [@kelleher2016efficient] to generate coalescent simulations for these populations. We simulate $\Theta=4N_e\mu=18,000$ which, with a maize mutation rate of $3\times10^{-8}$ [@clark2005estimating] and a teosinte effective population size of $N_e=150,000$ [ross2009historical] is equivalent to about 1Mb of sequence.  For convenience we set the recombination rate $\rho=4N_ec=\Theta$. 
+The end topology, showing relative population sizes and split times, is shown here using PopPlanner [@ewing2015popplanner]:
+
+![](./coal_model.png)
+
+I use msprime [@kelleher2016efficient] to generate coalescent simulations for these populations. I simulate $\Theta=4N_e\mu=18,000$ which, with a maize mutation rate of $3\times10^{-8}$ [@clark2005estimating] and a teosinte effective population size of $N_e=150,000$ [@ross2009historical], is equivalent to about 1Mb of sequence.  For convenience I set the recombination rate $\rho=4N_ec=\Theta$. 
 
 First, our generic function to run simulations and then generate diploid samples:
 ```{r functions}
-gendata<-function(migration_command,n,ninds){
+gendata<-function(migration_command,n,ninds,file_prefix){
   hapdat<-matrix(unlist(lapply(strsplit(system(paste("mspms ", n*ninds, " 1 -t 180 -r 180 180 -I ", n, " ", paste(rep(ninds,n),collapse=" ") , " ", migration_command, " | tail -", n*ninds,sep=""),intern=T),''),as.numeric)),nrow=n*ninds,byrow=T) # run coalescent sim
 
 paste(c(rep(ninds,n),rep(0,2)))
   
   genodat<-hapdat[seq(1,n*ninds,2),]+hapdat[seq(2,n*ninds,2),] # make diploid 
   
-  write.table(t(genodat),file="./crap.geno", quote=F, row.names=F, col.names=F, sep="") #write genotype file
+  write.table(t(genodat),file=paste("./",file_prefix,".geno",sep=""), quote=F, row.names=F, col.names=F, sep="") #write genotype file
   return(genodat) #rows=sites, columns=individuals
 }
 ```
 
-We run a simulation with no migration, with population splits following the topology in Figure 1 [].
-```{r sim migration}
-npops=6
-ninds=20
-kpops=6
-
-migration_command=paste("-n 4 3 -n 5 3 -n 6 3 -g 4 205 -g 5 300 -g 6 300 -ej 0.0075 5 4 -en 0.0075 4 0.32 -ej 0.011 6 4 -en 0.011 4 0.11 -ej 0.015 4 1 -en 0.015 1 1 -ej 0.08 3 1 -en 0.08 1 1 -ej 0.1 2 1 -en 0.1 1 1")
-mydat_nada<-gendata(migration_command,npops,ninds)
-```
-
-Now we run one where there *is* migration, 
-
-```{r sim nothing}
-migration_command=paste("-n 4 3 -n 5 3 -n 6 3 -g 4 205 -g 5 300 -g 6 300 -ej 0.0075 5 4 -en 0.0075 4 0.32 -ej 0.011 6 4 -en 0.011 4 0.11 -ej 0.015 4 1 -en 0.015 1 1 -ej 0.08 3 1 -en 0.08 1 1 -ej 0.1 2 1 -en 0.1 1 1")
-
-mydat_migration<-gendata(migration_command,npops,ninds)
-```
-
-
-#### Allele counts
-```{r counts}
-mydat<-mydat_nada
-allele_counts=list()
-allele_freqs=list()
-cumulative=0
-rmpop=as.numeric()
-for(i in 1:(npops)){
-  sample=1:(ninds/2)
-  if(length(sample)==0){  
-      allele_counts[[i]]=paste(0,0,sep=",")
-      allele_freqs[[i]]=paste(0,0,sep=",")
-      rmpop=c(rmpop,i)
-  } else if(length(sample)==1) {
-    allele_counts[[i]]=paste(mydat[cumulative+sample,],2*length(sample)-mydat[cumulative+sample,],sep=",")
-    allele_freqs[[i]]=mydat[cumulative+sample,]/(2*length(sample))
-  }
-  else{
-    allele_counts[[i]]=paste(colSums(mydat[cumulative+sample,]),2*length(sample)-colSums(mydat[cumulative+sample,]),sep=",")
-    allele_freqs[[i]]=colSums(mydat[cumulative+sample,])/(2*length(sample))
-  }
-  cumulative=cumulative+max(sample)
+```{r test fxn, include=FALSE}
+check_ms<-function(migration_command,n,ninds,file_prefix){
+  commandline=paste("mspms ", n*ninds, " 1 -t 180 -r 180 180 -I ", n, " ", paste(rep(ninds,n),collapse=" ") , " ", migration_command)
+  return(commandline)
 }
 ```
 
-## Structure Plots
+I run a simulation with no migration, with population splits following the topology above.
+```{r sim nothing}
+npops=7
+ninds=10
+kpops=4
 
-#### Uncut
-```{r uncut structure}
-#structure on original
-obj.snmf<-snmf("./crap.geno",K = kpops, repetitions=1, CPU=2, alpha = 10, project = "new") 
+migration_command=paste("-n 4 3 -n 5 2 -n 6 3 -n 7 2 -g 4 300 -g 5 500 -g 6 300 -g 7 500 -ej 0.009 5 4 -en 0.009 4 0.2 -eg 0.009 4 300  -ej 0.009 7 6 -en 0.009 6 0.2 -eg 0.009 6 300 -ej 0.011 6 4 -en 0.011 4 0.11 -eg 0.011 4 300 -ej 0.015 4 3 -en 0.015 3 1 -ej 0.08 3 2 -en 0.08 2 1 -ej 0.1 2 1 -en 0.1 1 1")
+mydat_no_migration<-gendata(migration_command,npops,ninds,"no")
+```
+
+```{r no structure, include=FALSE}
+obj.snmf<-snmf("./no.geno",K = kpops, repetitions=1, CPU=2, alpha = 10, project = "new") 
 qmatrix = Q(obj.snmf, K = kpops)
-bobuncut=gather(data.frame(t(qmatrix)),dude,qval,1:(nrow(qmatrix))) %>%
+no_migration=gather(data.frame(t(qmatrix)),dude,qval,1:(nrow(qmatrix))) %>%
 mutate(pop=factor(rep(1:kpops,nrow(qmatrix))),dude=factor(as.numeric(gsub("X","",dude))))
 ```
 
+Now I'll add migration from **ME** to **MH**, as is well documented in @hufford2013genomic. The level of migration simulated is roughly equivalent to one kernel out of 10,000 each generation coming from **ME**. 
 
-#### Plots
-```{r structure plots,fig.height=3, fig.width=12, results="hide"}
-blank2=c(rep("",9))
-blank1=c()
-poplabs=c(blank1,"PA",blank2,blank1,"ME",blank2,blank1,"ML",blank2,blank1,"SL",blank2,blank1,"SH",blank2,blank1,"MH",blank2)
+```{r sim mexicana migration}
+migration_command=paste("-m 5 1 60 -n 4 2 -n 5 2 -n 6 3 -n 7 2 -g 4 300 -g 5 500 -g 6 300 -g 7 500 -ej 0.009 5 4 -en 0.009 4 0.2 -eg 0.009 4 300  -ej 0.009 7 6 -en 0.009 6 0.2 -eg 0.009 6 300 -ej 0.011 6 4 -en 0.011 4 0.11 -eg 0.011 4 300 -ej 0.015 4 3 -en 0.015 3 1 -ej 0.08 3 2 -en 0.08 2 1 -ej 0.1 2 1 -en 0.1 1 1")
 
-ggplot(bobuncut,aes(x=dude,y=qval,fill=pop))+
+mydat_mex_migration<-gendata(migration_command,npops,ninds,"mex")
+```
+
+```{r p structure, include=FALSE}
+obj.snmf<-snmf("./mex.geno",K = kpops, repetitions=1, CPU=2, alpha = 10, project = "new") 
+qmatrix = Q(obj.snmf, K = kpops)
+m_migration=gather(data.frame(t(qmatrix)),dude,qval,1:(nrow(qmatrix))) %>%
+mutate(pop=factor(rep(1:kpops,nrow(qmatrix))),dude=factor(as.numeric(gsub("X","",dude))))
+```
+
+Finally, we add migration into lowland maize from a population of *parviglumis* different from that giving rise to domesticated maize (i.e. migration from **P2** into **ML**).
+
+```{r sim parv migration}
+migration_command=paste("-m 5 1 60 -m 4 2 60 -n 4 3 -n 5 2 -n 6 3 -n 7 2 -g 4 300 -g 5 500 -g 6 300 -g 7 500 -ej 0.009 5 4 -en 0.009 4 0.2 -eg 0.009 4 300  -ej 0.009 7 6 -en 0.009 6 0.2 -eg 0.009 6 300 -ej 0.011 6 4 -en 0.011 4 0.11 -eg 0.011 4 300 -ej 0.015 4 3 -en 0.015 3 1 -ej 0.08 3 2 -en 0.08 2 1 -ej 0.1 2 1 -en 0.1 1 1")
+
+mydat_parvmex_migration<-gendata(migration_command,npops,ninds,"pm")
+```
+
+```{r pm structure, include=FALSE}
+obj.snmf<-snmf("./pm.geno",K = kpops, repetitions=1, CPU=2, alpha = 10, project = "new") 
+qmatrix = Q(obj.snmf, K = kpops)
+pm_migration=gather(data.frame(t(qmatrix)),dude,qval,1:(nrow(qmatrix))) %>%
+mutate(pop=factor(rep(1:kpops,nrow(qmatrix))),dude=factor(as.numeric(gsub("X","",dude))))
+```
+
+For each of these simulations, I will make admixture plots and esimate population trees, similar to analyses in @MorenoLetelier. Worth noting as a caveat, however, that these are based on few runs, use largely default parameters, and don't follow the methods of @MorenoLetelier.
+
+## Admixture
+
+Here I use the function snmf in the [LEA package](http://membres-timc.imag.fr/Olivier.Francois/LEA/) with mostly default settings to calculate admixture plots. I only show plots for $K=$ `r kpops+0`.
+
+```{r structure plots, echo=FALSE, fig.height=6, fig.width=9}
+blank2=c(rep("",ninds/2-1))
+blank1=c(rep("",0))
+poplabs=c(blank1,"ME",blank2,blank1,"P2",blank2,blank1,"P1",blank2,blank1,"ML",blank2,blank1,"MH",blank2,blank1,"SL",blank2,blank1,"SH",blank2)
+
+no<-ggplot(no_migration,aes(x=dude,y=qval,fill=pop))+
+    geom_bar(stat="identity")+
+    theme(
+      axis.text.y=element_blank(),
+      axis.ticks.y=element_blank(),
+      axis.title.x=element_blank(),
+      axis.title.y=element_blank(),
+      axis.ticks.x=element_blank(),
+      axis.text.x=element_blank(),
+      axis.text=element_text(size=16),
+      plot.title = element_text(size = 18, face = "bold")
+    )+
+    ggtitle("no gene flow")+
+    scale_fill_manual(guide=FALSE,values=viridis(npops))+
+    scale_x_discrete(labels="")
+
+m<-ggplot(m_migration,aes(x=dude,y=qval,fill=pop))+
+    geom_bar(stat="identity")+
+    theme(
+      axis.text.y=element_blank(),
+      axis.ticks.y=element_blank(),
+      axis.title.x=element_blank(),
+      axis.title.y=element_blank(),
+      axis.text=element_text(size=16),
+      plot.title = element_text(size = 18, face = "bold"),
+      axis.ticks.x=element_blank(),
+      axis.text.x=element_blank()
+    )+
+    ggtitle("mex gene flow")+
+    scale_fill_manual(guide=FALSE,values=viridis(npops))+
+    scale_x_discrete(labels=poplabs)
+
+pm<-ggplot(pm_migration,aes(x=dude,y=qval,fill=pop))+
     geom_bar(stat="identity")+
     theme(
       axis.text.y=element_blank(),
@@ -134,22 +183,52 @@ ggplot(bobuncut,aes(x=dude,y=qval,fill=pop))+
       axis.title.x=element_blank(),
       axis.title.y=element_blank()
     )+
-    ggtitle("ADMIXTURE")+
+    ggtitle("parv+mex gene flow")+
     scale_fill_manual(guide=FALSE,values=viridis(npops))+
     scale_x_discrete(labels=poplabs)+
-    theme(axis.text=element_text(size=32),plot.title = element_text(size = 40, face = "bold"))
+    theme(axis.text=element_text(size=16),plot.title = element_text(size = 18, face = "bold"))
+
+plot_grid(no,m,pm,ncol=1)
 ```
 
-## Treemix
-```{r treemix og}
-treemix<-data.frame(matrix(unlist(allele_counts),ncol=npops,byrow=F))
-colnames(treemix)=c("PARV","MEX","ML","SL","SH","MH")
-write.table(treemix,"treemix_input.txt",quote=F,row.name=F)
-system("gzip -f treemix_input.txt")
-```
+<!-- #### Allele counts -->
+<!-- ```{r counts} -->
+<!-- mydat<-mydat_nada -->
+<!-- allele_counts=list() -->
+<!-- allele_freqs=list() -->
+<!-- cumulative=0 -->
+<!-- rmpop=as.numeric() -->
+<!-- for(i in 1:(npops)){ -->
+<!--   sample=1:(ninds/2) -->
+<!--   if(length(sample)==0){   -->
+<!--       allele_counts[[i]]=paste(0,0,sep=",") -->
+<!--       allele_freqs[[i]]=paste(0,0,sep=",") -->
+<!--       rmpop=c(rmpop,i) -->
+<!--   } else if(length(sample)==1) { -->
+<!--     allele_counts[[i]]=paste(mydat[cumulative+sample,],2*length(sample)-mydat[cumulative+sample,],sep=",") -->
+<!--     allele_freqs[[i]]=mydat[cumulative+sample,]/(2*length(sample)) -->
+<!--   } -->
+<!--   else{ -->
+<!--     allele_counts[[i]]=paste(colSums(mydat[cumulative+sample,]),2*length(sample)-colSums(mydat[cumulative+sample,]),sep=",") -->
+<!--     allele_freqs[[i]]=colSums(mydat[cumulative+sample,])/(2*length(sample)) -->
+<!--   } -->
+<!--   cumulative=cumulative+max(sample) -->
+<!-- } -->
+<!-- ``` -->
 
-Make tree
-```{r make uncut tree}
-system("~/src/treemix/src/treemix -i ~/gdrive/sandbox/silhouette/treemix_input.txt.gz -o treemix_out -m 1 -root MEX")
-plot_tree("~/gdrive/sandbox/silhouette/treemix_out")
-```
+
+<!-- ## Treemix -->
+<!-- ```{r treemix og} -->
+<!-- treemix<-data.frame(matrix(unlist(allele_counts),ncol=npops,byrow=F)) -->
+<!-- colnames(treemix)=c("PARV","MEX","ML","SL","SH","MH") -->
+<!-- write.table(treemix,"treemix_input.txt",quote=F,row.name=F) -->
+<!-- system("gzip -f treemix_input.txt") -->
+<!-- ``` -->
+
+<!-- Make tree -->
+<!-- ```{r make uncut tree} -->
+<!-- system("~/src/treemix/src/treemix -i ~/gdrive/sandbox/silhouette/treemix_input.txt.gz -o treemix_out -m 1 -root MEX") -->
+<!-- plot_tree("~/gdrive/sandbox/silhouette/treemix_out") -->
+<!-- ``` -->
+
+# References
